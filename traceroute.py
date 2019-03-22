@@ -82,32 +82,42 @@ class Traceroute:
 		self.ttl = 1
 		try:
 			self.destination_ip = to_ip(destination_server)
-		except socket.gaierror as err:
+		except socket.gaierror:
 			self.print_unknownhost()
+
+	def print_start(self):
+		print("traceroute to {} ({}), {} hops max, {} byte packets".format(self.destination_server, self.destination_ip,
+																		   self.max_hops, self.packet_size))
 
 	def print_unknownhost(self):
 		print("traceroute: unknown host {}".format(self.destination_server))
 
 	def print_timeout(self):
+		if self.seq_no == 1:
+			print("{} ".format(self.ttl), end="")
 		print("* ", end="")
+		if self.seq_no == self.count_of_packets:
+			print("\n*********************************************************\n")
 
-	def print_trace(self, delay, icmp_header, ip_header):
+	def print_trace(self, delay, ip_header):
 
+		# print("PRINT TRACE")
+		ip = socket.inet_ntoa(struct.pack('!I', ip_header['Source_IP']))
 		try:
-			ip = socket.inet_ntoa(struct.pack('!I', ip_header['Source_IP']))
 			sender_hostname = socket.gethostbyaddr(ip)[0]
 		except socket.herror:
-			sender_hostname = self.destination_ip
+			sender_hostname = ip
 
+		# print("sender_hostname", sender_hostname)
 		if self.prev_sender_hostname != sender_hostname:
-			print("{} {} ({}) {:.3f}ms ".format(self.ttl, sender_hostname, self.destination_ip, delay), end="")
+			print("{} {} ({}) {:.3f}ms ".format(self.ttl, sender_hostname, ip, delay), end="")
 			self.prev_sender_hostname = sender_hostname
 
 		else:
 			print("{:.3f} ms ".format(delay), end="")
 
 		if self.seq_no == self.count_of_packets:
-			print()
+			print("\n*********************************************************\n")
 			self.prev_sender_hostname = ""
 			if MIN_SLEEP > delay:
 				time.sleep((MIN_SLEEP - delay) / 1000)
@@ -118,6 +128,7 @@ class Traceroute:
 
 	def start_traceroute(self):
 
+		icmp_header = None
 		while self.ttl <= self.max_hops:
 			self.seq_no = 0
 			try:
@@ -129,8 +140,7 @@ class Traceroute:
 
 			self.ttl += 1
 			if icmp_header is not None:
-				ip = socket.inet_ntoa(struct.pack("!I", icmp_header["Source_IP"]))
-				if ip == self.destination_ip:
+				if icmp_header['type'] == ICMP_ECHO_REPLY:
 					sys.exit()
 
 	def tracer(self):
@@ -148,6 +158,9 @@ class Traceroute:
 			sys.exit()
 
 		self.seq_no += 1
+		if self.ttl == 1 and self.seq_no == 1:
+			self.print_start()
+
 		sent_time = self.send_icmp_echo(icmp_socket)
 
 		if sent_time is None:
@@ -155,12 +168,19 @@ class Traceroute:
 
 		receive_time, icmp_header, ip_header = self.receive_icmp_reply(icmp_socket)
 
-		delay = 0
+		"""print("IP_Header")
+		print(ip_header)"""
+		"""if ip_header:
+			x = struct.pack("!I", ip_header["Source_IP"])
+			print("IP packed: ", x)
+			print("IP: ", socket.inet_ntoa(x))"""
+
+		icmp_socket.close()
 		if receive_time:
 			delay = (receive_time - sent_time) * 1000.0
-			self.print_trace(delay, icmp_header, ip_header)
+			self.print_trace(delay, ip_header)
 
-		return ip_header
+		return icmp_header
 
 	def send_icmp_echo(self, icmp_socket):
 
@@ -189,13 +209,17 @@ class Traceroute:
 		return send_time
 
 	def receive_icmp_reply(self, icmp_socket):
+
 		timeout = self.timeout / 1000
 
 		while True:
+			started_select = time.time()
 			inputReady, _, _ = select.select([icmp_socket], [], [], timeout)
+			how_long_in_select = time.time() - started_select
+			# print("How long in select: ", how_long_in_select)
 			receive_time = timer()
 
-			if not inputReady: #timeout
+			if not inputReady:  # timeout
 				self.print_timeout()
 				return None, None, None
 
@@ -204,14 +228,14 @@ class Traceroute:
 			icmp_keys = ['type', 'code', 'checksum', 'identifier', 'sequence number']
 			icmp_header = self.header_to_dict(icmp_keys, packet_data[20:28], "!BBHHH")
 
-			if icmp_header['type'] == 11: # time exceeded
+			# if icmp_header['type'] == 11:  # time exceeded
 
-				ip_keys = ['VersionIHL', 'Type_of_Service', 'Total_Length', 'Identification', 'Flags_FragOffset', 'TTL',
-						   'Protocol', 'Header_Checksum', 'Source_IP', 'Destination_IP']
+			ip_keys = ['VersionIHL', 'Type_of_Service', 'Total_Length', 'Identification', 'Flags_FragOffset', 'TTL',
+					   'Protocol', 'Header_Checksum', 'Source_IP', 'Destination_IP']
 
-				ip_header = self.header_to_dict(ip_keys, packet_data[:20], "!BBHHHBBHII")
+			ip_header = self.header_to_dict(ip_keys, packet_data[:20], "!BBHHHBBHII")
 
-				return receive_time, icmp_header, ip_header
+			return receive_time, icmp_header, ip_header
 
 
 def traceroute(destination_server, count_of_packets=3, packet_size=52, max_hops=64, timeout=1000):
