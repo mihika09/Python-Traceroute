@@ -5,7 +5,6 @@ import time
 import sys
 import select
 
-
 ICMP_ECHO = 8
 ICMP_ECHO_REPLY = 0
 ICMP_TIME_EXCEEDED = 11
@@ -94,30 +93,34 @@ class Traceroute:
 
 	def print_timeout(self):
 		if self.seq_no == 1:
-			print("{} ".format(self.ttl), end="")
+			if self.ttl < 10:
+				print(" {}  ".format(self.ttl), end="")
+			else:
+				print("{}  ".format(self.ttl), end="")
 		print("* ", end="")
 		if self.seq_no == self.count_of_packets:
-			print("\n*********************************************************\n")
+			print()
 
 	def print_trace(self, delay, ip_header):
 
-		# print("PRINT TRACE")
 		ip = socket.inet_ntoa(struct.pack('!I', ip_header['Source_IP']))
 		try:
 			sender_hostname = socket.gethostbyaddr(ip)[0]
 		except socket.herror:
 			sender_hostname = ip
 
-		# print("sender_hostname", sender_hostname)
 		if self.prev_sender_hostname != sender_hostname:
-			print("{} {} ({}) {:.3f}ms ".format(self.ttl, sender_hostname, ip, delay), end="")
+			if self.ttl < 10:
+				print(" {}  {} ({}) {:.3f}ms ".format(self.ttl, sender_hostname, ip, delay), end="")
+			else:
+				print("{}  {} ({}) {:.3f}ms ".format(self.ttl, sender_hostname, ip, delay), end="")
 			self.prev_sender_hostname = sender_hostname
 
 		else:
 			print("{:.3f} ms ".format(delay), end="")
 
 		if self.seq_no == self.count_of_packets:
-			print("\n*********************************************************\n")
+			print()
 			self.prev_sender_hostname = ""
 			if MIN_SLEEP > delay:
 				time.sleep((MIN_SLEEP - delay) / 1000)
@@ -136,12 +139,12 @@ class Traceroute:
 					icmp_header = self.tracer()
 
 			except KeyboardInterrupt:  # handles Ctrl+C
-				sys.exit()
+				break
 
 			self.ttl += 1
 			if icmp_header is not None:
 				if icmp_header['type'] == ICMP_ECHO_REPLY:
-					sys.exit()
+					break
 
 	def tracer(self):
 
@@ -167,13 +170,6 @@ class Traceroute:
 			return
 
 		receive_time, icmp_header, ip_header = self.receive_icmp_reply(icmp_socket)
-
-		"""print("IP_Header")
-		print(ip_header)"""
-		"""if ip_header:
-			x = struct.pack("!I", ip_header["Source_IP"])
-			print("IP packed: ", x)
-			print("IP: ", socket.inet_ntoa(x))"""
 
 		icmp_socket.close()
 		if receive_time:
@@ -213,10 +209,9 @@ class Traceroute:
 		timeout = self.timeout / 1000
 
 		while True:
-			started_select = time.time()
+			# started_select = time.time()
 			inputReady, _, _ = select.select([icmp_socket], [], [], timeout)
-			how_long_in_select = time.time() - started_select
-			# print("How long in select: ", how_long_in_select)
+			# how_long_in_select = time.time() - started_select
 			receive_time = timer()
 
 			if not inputReady:  # timeout
@@ -243,4 +238,4 @@ def traceroute(destination_server, count_of_packets=3, packet_size=52, max_hops=
 	t.start_traceroute()
 
 
-traceroute("google.com")
+# traceroute("facebook.com")
